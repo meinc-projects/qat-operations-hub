@@ -1,0 +1,39 @@
+# Environment and credentials
+.env
+*.pem
+*.key
+credentials.json
+token.json
+service_account.json
+oauth_credentials.json
+oath_desktopapp.json
+google_token.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+
+# Logs and data
+logs/
+data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+temp/
+app-context.zip
