@@ -9,7 +9,8 @@ The Hub provides:
 - **Zoho OAuth 2.0 lifecycle management** — automatic token refresh, 401/429 handling
 - **Claude API client** — Vision OCR and document analysis with retry logic
 - **SQLite metrics** — tracks every module run, event, and API call
-- **Microsoft Teams notifications** — summary, warning, and critical alerts via Adaptive Cards
+- **Telegram notifications** — summary, warning, critical, and progress alerts
+- **SendGrid email** — module completion reports delivered to inbox
 - **Structured logging** — rotating file + stdout with per-module namespaces
 - **FastAPI server** — health, metrics, status, and on-demand module execution endpoints
 - **Module registry** — auto-discovers modules, isolates crashes, manages lifecycle
@@ -26,14 +27,28 @@ Processes 2025 Closed Won deals in Zoho CRM that are missing registration expira
 6. Creates a 2026 renewal deal (with duplicate prevention)
 7. Generates a data-quality audit report (JSON + CSV)
 
+### Module 2: CRM Enrichment
+
+Enriches Closed Won deals for a target month/year that are missing the `Reg_Expiration` field:
+
+1. Fetches all Closed Won deals for the target month via COQL (paginated)
+2. Filters to deals missing `Reg_Expiration` in Python
+3. Downloads registration card attachments (tries up to 3 per deal)
+4. OCRs the card via Claude Vision (Opus) to extract expiration date
+5. Extracts VIN from Deal_Name and decodes via NHTSA API
+6. Writes `Reg_Expiration`, `Year_Make_Model`, and `VIN_Number1` back to the deal
+7. Saves progress after every deal for resumability
+8. Sends Telegram heartbeat every 200 deals
+9. Sends Telegram + email report on completion
+
 ---
 
 ## Prerequisites
 
 - Python 3.11+ installed on Windows VPS
-- Anthropic API key (`claude-sonnet-4-20250514`)
+- Anthropic API key
 - Zoho CRM Self Client with OAuth credentials and required scopes
-- Microsoft Teams incoming webhook URL
+- Telegram bot token and chat ID
 - [NSSM](https://nssm.cc/) installed for Windows Service management
 - Git
 
@@ -49,24 +64,23 @@ These must be set on your Zoho API Console Self Client before generating the ref
 ZohoCRM.modules.deals.ALL
 ZohoCRM.modules.contacts.ALL
 ZohoCRM.modules.accounts.ALL
+ZohoCRM.modules.attachments.ALL
 ZohoCRM.settings.ALL
 ZohoCRM.coql.READ
 ZohoCRM.files.READ
 ```
 
-### Custom Fields
+### CRM Fields
 
-Create these **Single Line** fields in the Deals module (Settings > Customization > Modules and Fields > Deals):
+The modules use these CRM field API names (configurable via `.env`):
 
-| Display Label  | Suggested API Name |
-|---------------|-------------------|
-| Vehicle Year  | `Vehicle_Year`    |
-| Vehicle Make  | `Vehicle_Make`    |
-| Vehicle Model | `Vehicle_Model`   |
+| Field | API Name | Purpose |
+|-------|----------|---------|
+| Registration Expiration | `Reg_Expiration` | Expiration date from OCR |
+| VIN | `VIN_Number1` | Vehicle identification number |
+| Year Make Model | `Year_Make_Model` | Combined vehicle info from NHTSA decode |
 
-After creating, check the API name in field properties. If they differ from the defaults, update the `CRM_FIELD_*` variables in your `.env`.
-
-> The module runs without these fields — VIN decode data will be logged but not written to deals. A warning is shown at startup.
+> The modules run without `Year_Make_Model` — VIN decode data will be logged but not written to deals. A warning is shown at startup.
 
 ### Renewals Pipeline (Optional)
 
@@ -85,20 +99,27 @@ qat-operations-hub/
 │   │   ├── ringcentral_auth.py     # RingCentral JWT auth (placeholder)
 │   │   ├── claude_client.py        # Claude API wrapper (Vision + text)
 │   │   ├── metrics.py              # SQLite-backed metrics collector
-│   │   ├── notifications.py        # Teams webhook notifier
+│   │   ├── notifications.py        # Telegram bot notifier
+│   │   ├── email_client.py         # SendGrid email delivery
 │   │   ├── logger.py               # Structured logging with rotation
 │   │   ├── module_registry.py      # BaseModule ABC + registry
 │   │   └── server.py               # FastAPI health/metrics/run endpoints
 │   ├── modules/
-│   │   └── renewal_backfill/
+│   │   ├── renewal_backfill/
+│   │   │   ├── module.py           # Module entry point (BaseModule impl)
+│   │   │   ├── crm_queries.py      # COQL queries and CRM API operations
+│   │   │   ├── attachment_handler.py  # Download + identify reg cards
+│   │   │   ├── ocr_processor.py    # Claude Vision OCR
+│   │   │   ├── vin_decoder.py      # NHTSA vPIC API
+│   │   │   ├── deal_enricher.py    # Write-back enriched data
+│   │   │   ├── renewal_creator.py  # Create renewal deals
+│   │   │   └── audit_reporter.py   # Data quality audit reports
+│   │   └── crm_enrichment/
 │   │       ├── module.py           # Module entry point (BaseModule impl)
-│   │       ├── crm_queries.py      # COQL queries and CRM API operations
-│   │       ├── attachment_handler.py  # Download + identify reg cards
-│   │       ├── ocr_processor.py    # Claude Vision OCR
-│   │       ├── vin_decoder.py      # NHTSA vPIC API
-│   │       ├── deal_enricher.py    # Write-back enriched data
-│   │       ├── renewal_creator.py  # Create renewal deals
-│   │       └── audit_reporter.py   # Data quality audit reports
+│   │       ├── crm_queries.py      # COQL queries and CRM operations
+│   │       ├── ocr_processor.py    # Claude Vision OCR (Opus model)
+│   │       ├── vin_decoder.py      # VIN extraction + NHTSA decode
+│   │       └── report.py           # Completion reporting (Telegram + email)
 │   └── main.py                     # Application entry point
 ├── tests/
 │   ├── test_connection.py          # Pre-flight API connectivity test
@@ -127,7 +148,8 @@ qat-operations-hub/
 | `ZOHO_CRM_API_DOMAIN` | No | `https://www.zohoapis.com` | Zoho CRM API base URL |
 | `ZOHO_CRM_ACCOUNTS_DOMAIN` | No | `https://accounts.zoho.com` | Zoho accounts domain for token refresh |
 | `ANTHROPIC_API_KEY` | Yes | — | Anthropic Claude API key |
-| `TEAMS_WEBHOOK_URL` | Yes | — | Microsoft Teams incoming webhook URL |
+| `TELEGRAM_BOT_TOKEN` | Yes | — | Telegram bot token for notifications |
+| `TELEGRAM_CHAT_ID` | Yes | — | Telegram chat ID for notifications |
 | `HUB_HOST` | No | `0.0.0.0` | FastAPI listen address |
 | `HUB_PORT` | No | `8100` | FastAPI listen port |
 | `LOG_LEVEL` | No | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
@@ -136,15 +158,20 @@ qat-operations-hub/
 | `BACKFILL_YEAR` | No | `2025` | Source deal year |
 | `BACKFILL_RENEWAL_YEAR` | No | `2026` | Renewal deal year |
 | `BACKFILL_DAYS_BEFORE_EXPIRY` | No | `45` | Days before expiry for renewal closing date |
-| `CRM_FIELD_EXPIRATION_DATE` | No | `Expiration_Date` | CRM field API name |
-| `CRM_FIELD_VIN` | No | `VIN` | CRM field API name |
-| `CRM_FIELD_VEHICLE_YEAR` | No | `Vehicle_Year` | CRM field API name |
-| `CRM_FIELD_VEHICLE_MAKE` | No | `Vehicle_Make` | CRM field API name |
-| `CRM_FIELD_VEHICLE_MODEL` | No | `Vehicle_Model` | CRM field API name |
+| `ENRICHMENT_TARGET_YEAR` | No | `2025` | Target year for CRM enrichment |
+| `ENRICHMENT_TARGET_MONTH` | No | — | Target month (1-12) for CRM enrichment |
+| `ENRICHMENT_DRY_RUN` | No | `true` | **Must be true for first run** |
+| `ENRICHMENT_BATCH_SIZE` | No | `200` | COQL page size for enrichment |
+| `CRM_FIELD_EXPIRATION_DATE` | No | `Reg_Expiration` | CRM field API name |
+| `CRM_FIELD_VIN` | No | `VIN_Number1` | CRM field API name |
+| `CRM_FIELD_VEHICLE_YMM` | No | `Year_Make_Model` | CRM field API name |
 | `CRM_FIELD_STAGE` | No | `Stage` | CRM field API name |
 | `CRM_FIELD_CONTACT` | No | `Contact_Name` | CRM field API name |
 | `CRM_FIELD_AMOUNT` | No | `Amount` | CRM field API name |
 | `CRM_FIELD_CLOSING_DATE` | No | `Closing_Date` | CRM field API name |
+| `SENDGRID_API_KEY` | No | — | SendGrid API key for email reports |
+| `SENDGRID_FROM_EMAIL` | No | — | Verified sender email address |
+| `SENDGRID_TO_EMAIL` | No | — | Report recipient email address |
 | `RC_CLIENT_ID` | No | — | RingCentral (future modules) |
 | `RC_CLIENT_SECRET` | No | — | RingCentral (future modules) |
 | `RC_JWT` | No | — | RingCentral (future modules) |
@@ -163,7 +190,7 @@ cd C:\QATHub
 # 2. Create .env from template
 copy .env.template .env
 
-# 3. Fill in credentials in .env (Zoho, Anthropic, Teams)
+# 3. Fill in credentials in .env (Zoho, Anthropic, Telegram)
 
 # 4. Install dependencies
 pip install -r requirements.txt
@@ -174,12 +201,12 @@ python tests/test_connection.py
 # 6. Resolve any [FAIL] items shown in the output
 
 # 7. Run dry run (ALWAYS do this first)
-python src/main.py --run renewal_backfill --dry-run
+python src/main.py --run crm_enrichment --dry-run
 
 # 8. Review the output in logs/hub.log
 
 # 9. When satisfied, run live
-python src/main.py --run renewal_backfill
+python src/main.py --run crm_enrichment
 ```
 
 ---
@@ -187,10 +214,16 @@ python src/main.py --run renewal_backfill
 ## How to Run
 
 ```bash
-# Dry run — logs what would happen, no CRM writes (ALWAYS do this first)
+# CRM Enrichment — dry run (ALWAYS do this first)
+python src/main.py --run crm_enrichment --dry-run
+
+# CRM Enrichment — live run
+python src/main.py --run crm_enrichment
+
+# Renewal Backfill — dry run
 python src/main.py --run renewal_backfill --dry-run
 
-# Live run — processes deals and writes to CRM
+# Renewal Backfill — live run
 python src/main.py --run renewal_backfill
 
 # Service mode — starts FastAPI server, modules triggered via API
@@ -228,8 +261,9 @@ nssm start QATOperationsHub
 |------|-----|
 | Health check | `GET http://localhost:8100/health` |
 | All module metrics | `GET http://localhost:8100/metrics` |
-| Single module status | `GET http://localhost:8100/status/renewal_backfill` |
-| Trigger a run | `POST http://localhost:8100/run/renewal_backfill` (body: `{"dry_run": true}`) |
+| Module status | `GET http://localhost:8100/status/crm_enrichment` |
+| Trigger enrichment | `POST http://localhost:8100/run/crm_enrichment` (body: `{"dry_run": true, "target_month": 1}`) |
+| Trigger backfill | `POST http://localhost:8100/run/renewal_backfill` (body: `{"dry_run": true}`) |
 | Logs | `logs/hub.log` (rotated at 10 MB, 5 backups) |
 | Audit reports | `data/audit_report_*.json` and `data/audit_report_*.csv` |
 
@@ -250,13 +284,13 @@ See [docs/ADDING_MODULES.md](docs/ADDING_MODULES.md) for the `BaseModule` interf
 | "429 Too Many Requests" | Zoho rate-limited — the backoff handler retries automatically. If persistent, reduce batch size or add delays. |
 | Module appears stuck | Check `logs/hub.log` for the last processed deal. Restart the service (`nssm restart QATOperationsHub`). The module is resumable — already-processed deals are skipped on the next run. |
 | "Could not process PDF" | Intermittent Anthropic API issue (<1% of PDFs). The retry logic handles most cases. If a specific file always fails, check its format. |
-| Teams notifications not arriving | Verify `TEAMS_WEBHOOK_URL` in `.env`. Run `python tests/test_connection.py` to test the webhook. |
+| Telegram notifications not arriving | Verify `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`. Run `python tests/test_connection.py` to test the bot. |
 
 ---
 
 ## Security Notes
 
-- **Dry run is default.** `BACKFILL_DRY_RUN=true` in `.env.template` — never set to `false` without reviewing dry-run output.
+- **Dry run is default.** Both modules default to `DRY_RUN=true` — never set to `false` without reviewing dry-run output.
 - **Sensitive documents.** Registration cards are processed in memory and never persisted to disk.
 - **Rotate exposed tokens.** If any Zoho token was shared in chat or logs, revoke it immediately via the Zoho API Console.
 - **`.env` is gitignored.** Never commit credentials to version control.

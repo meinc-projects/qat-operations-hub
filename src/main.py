@@ -52,7 +52,7 @@ def main() -> None:
     from src.core.zoho_auth import ZohoAuthManager
     from src.core.claude_client import ClaudeClient
     from src.core.metrics import MetricsCollector
-    from src.core.notifications import TeamsNotifier
+    from src.core.notifications import TelegramNotifier
     from src.core.module_registry import HubContext, ModuleRegistry
     from src.core.server import create_app
 
@@ -66,7 +66,7 @@ def main() -> None:
 
     metrics = MetricsCollector(data_dir=config.project_root / "data")
     claude_client = ClaudeClient(api_key=config.anthropic_api_key, metrics_collector=metrics)
-    notifier = TeamsNotifier(webhook_url=config.teams_webhook_url)
+    notifier = TelegramNotifier(bot_token=config.telegram_bot_token, chat_id=config.telegram_chat_id)
 
     hub_context = HubContext(
         config=config,

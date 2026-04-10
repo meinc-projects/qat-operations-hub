@@ -18,7 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.core.config import load_config
 from src.core.zoho_auth import ZohoAuthManager
 from src.core.claude_client import ClaudeClient
-from src.core.notifications import TeamsNotifier
+from src.core.notifications import TelegramNotifier
 
 
 _pass = 0
@@ -79,8 +79,8 @@ def main() -> None:
         api_names = {f.get("api_name"): f.get("display_label") for f in all_fields}
 
         required_fields = [
-            ("Expiration_Date", fields.expiration_date),
-            ("VIN", fields.vin),
+            ("Reg_Expiration", fields.expiration_date),
+            ("VIN_Number1", fields.vin),
             ("Stage", fields.stage),
             ("Contact_Name", fields.contact),
             ("Closing_Date", fields.closing_date),
@@ -140,7 +140,7 @@ def main() -> None:
 
 
 def _run_non_zoho_checks(config) -> None:
-    """NHTSA, Claude API, Teams webhook."""
+    """NHTSA, Claude API, Telegram bot."""
     import requests as req
 
     # ── NHTSA ───────────────────────────────────────────────────────
@@ -167,16 +167,16 @@ def _run_non_zoho_checks(config) -> None:
     except Exception as exc:
         _report("FAIL", "Claude API", str(exc))
 
-    # ── Teams webhook ───────────────────────────────────────────────
+    # ── Telegram bot ──────────────────────────────────────────────
     try:
-        notifier = TeamsNotifier(webhook_url=config.teams_webhook_url)
+        notifier = TelegramNotifier(bot_token=config.telegram_bot_token, chat_id=config.telegram_chat_id)
         ok = notifier.send_test()
         if ok:
-            _report("PASS", "Teams Webhook", "Notification sent successfully")
+            _report("PASS", "Telegram Bot", "Notification sent successfully")
         else:
-            _report("WARN", "Teams Webhook", "POST succeeded but response was non-2xx")
+            _report("WARN", "Telegram Bot", "POST succeeded but response was non-2xx")
     except Exception as exc:
-        _report("FAIL", "Teams Webhook", str(exc))
+        _report("FAIL", "Telegram Bot", str(exc))
 
 
 def _suggest_alternatives(label: str, api_names: dict[str, str]) -> None:

@@ -67,10 +67,11 @@ class ClaudeClient:
         *,
         run_id: str | None = None,
         max_tokens: int = 500,
+        model: str | None = None,
     ) -> dict:
         """Send an image (JPEG/PNG) to Claude Vision and return the parsed response."""
         response = self._call_with_retry(
-            model=MODEL,
+            model=model or MODEL,
             max_tokens=max_tokens,
             messages=[
                 {
@@ -100,10 +101,11 @@ class ClaudeClient:
         *,
         run_id: str | None = None,
         max_tokens: int = 500,
+        model: str | None = None,
     ) -> dict:
         """Send a PDF document to Claude and return the parsed response."""
         response = self._call_with_retry(
-            model=MODEL,
+            model=model or MODEL,
             max_tokens=max_tokens,
             messages=[
                 {

@@ -67,13 +67,17 @@ class RingCentralConfig:
 class Config:
     zoho: ZohoConfig
     anthropic_api_key: str
-    teams_webhook_url: str
+    telegram_bot_token: str
+    telegram_chat_id: str
     hub_host: str
     hub_port: int
     log_level: str
     backfill: BackfillConfig
     crm_fields: CRMFieldConfig
     ringcentral: RingCentralConfig
+    sendgrid_api_key: str = ""
+    sendgrid_from_email: str = ""
+    sendgrid_to_email: str = ""
     zoho_books_org_id: str = ""
     project_root: Path = field(default_factory=lambda: PROJECT_ROOT)
 
@@ -102,8 +106,8 @@ def load_config() -> Config:
     )
 
     crm_fields = CRMFieldConfig(
-        expiration_date=_optional("CRM_FIELD_EXPIRATION_DATE", "Expiration_Date"),
-        vin=_optional("CRM_FIELD_VIN", "VIN"),
+        expiration_date=_optional("CRM_FIELD_EXPIRATION_DATE", "Reg_Expiration"),
+        vin=_optional("CRM_FIELD_VIN", "VIN_Number1"),
         vehicle_ymm=_optional("CRM_FIELD_VEHICLE_YMM", "Year_Make_Model"),
         stage=_optional("CRM_FIELD_STAGE", "Stage"),
         contact=_optional("CRM_FIELD_CONTACT", "Contact_Name"),
@@ -122,12 +126,16 @@ def load_config() -> Config:
     return Config(
         zoho=zoho,
         anthropic_api_key=_require("ANTHROPIC_API_KEY"),
-        teams_webhook_url=_require("TEAMS_WEBHOOK_URL"),
+        telegram_bot_token=_require("TELEGRAM_BOT_TOKEN"),
+        telegram_chat_id=_require("TELEGRAM_CHAT_ID"),
         hub_host=_optional("HUB_HOST", "0.0.0.0"),
         hub_port=int(_optional("HUB_PORT", "8100")),
         log_level=_optional("LOG_LEVEL", "INFO"),
         backfill=backfill,
         crm_fields=crm_fields,
         ringcentral=ringcentral,
+        sendgrid_api_key=_optional("SENDGRID_API_KEY"),
+        sendgrid_from_email=_optional("SENDGRID_FROM_EMAIL"),
+        sendgrid_to_email=_optional("SENDGRID_TO_EMAIL"),
         zoho_books_org_id=_optional("ZOHO_BOOKS_ORG_ID"),
     )
