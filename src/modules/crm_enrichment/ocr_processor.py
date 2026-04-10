@@ -1,6 +1,7 @@
 """Claude Vision OCR for CA DMV registration cards."""
 
 import base64
+import io
 import re
 from datetime import datetime
 from typing import Any
@@ -8,6 +9,8 @@ from typing import Any
 from src.core.logger import get_logger
 
 logger = get_logger("hub.crm_enrichment.ocr")
+
+MAX_IMAGE_BYTES = 4_800_000  # 4.8 MB — stay under Claude's 5 MB limit
 
 OCR_MODEL = "claude-sonnet-4-20250514"
 
@@ -42,6 +45,10 @@ def ocr_registration_card(
         {"success": True, "expiration_date": "YYYY-MM-DD", "raw_text": ..., "usage": ...}
         {"success": False, "reason": ..., "usage": ...}
     """
+    # Compress oversized images before sending to Claude
+    if media_type != "application/pdf" and len(file_bytes) > MAX_IMAGE_BYTES:
+        file_bytes, media_type = _compress_image(file_bytes, media_type)
+
     b64 = base64.b64encode(file_bytes).decode("ascii")
 
     if media_type == "application/pdf":
@@ -104,3 +111,46 @@ def _parse_date(date_str: str) -> str | None:
         except ValueError:
             continue
     return None
+
+
+def _compress_image(file_bytes: bytes, media_type: str) -> tuple[bytes, str]:
+    """Compress an image to fit under Claude's 5 MB limit.
+
+    Progressively reduces JPEG quality until the image is small enough.
+    Returns (compressed_bytes, media_type).
+    """
+    from PIL import Image
+
+    original_size = len(file_bytes)
+    img = Image.open(io.BytesIO(file_bytes))
+
+    # Convert RGBA/palette to RGB for JPEG
+    if img.mode in ("RGBA", "P", "LA"):
+        img = img.convert("RGB")
+
+    # If image is very large dimensionally, resize first
+    max_dim = 3000
+    if max(img.size) > max_dim:
+        ratio = max_dim / max(img.size)
+        new_size = (int(img.width * ratio), int(img.height * ratio))
+        img = img.resize(new_size, Image.LANCZOS)
+        logger.info("Resized image from %s to %s", (img.width, img.height), new_size)
+
+    # Try progressively lower JPEG quality
+    for quality in (85, 70, 55, 40):
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        compressed = buf.getvalue()
+        if len(compressed) <= MAX_IMAGE_BYTES:
+            logger.info(
+                "Compressed image: %s -> %s bytes (quality=%d)",
+                original_size, len(compressed), quality,
+            )
+            return compressed, "image/jpeg"
+
+    # Last resort: return whatever we got at lowest quality
+    logger.warning(
+        "Image still %d bytes after max compression (original %d)",
+        len(compressed), original_size,
+    )
+    return compressed, "image/jpeg"

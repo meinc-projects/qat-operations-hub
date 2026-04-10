@@ -131,14 +131,17 @@ class CRMEnrichmentModule(BaseModule):
                         run_id, self.name(), "failed", deal_id, deal_name, {"error": str(exc)}
                     )
 
-                # Progress logging and heartbeat
+                # Update DB counters every 10 deals so /status stays fresh
+                if idx % 10 == 0 or idx == total:
+                    self.ctx.metrics.update_run_counts(
+                        run_id, processed=idx, succeeded=succeeded, failed=failed, skipped=skipped,
+                    )
+
+                # Progress logging and Telegram heartbeat every HEARTBEAT_INTERVAL
                 if idx % HEARTBEAT_INTERVAL == 0 or idx == total:
                     pct = (idx / total * 100) if total else 0
                     logger.info("Progress: %d/%d (%.1f%%) — %d ok, %d fail, %d skip",
                                 idx, total, pct, succeeded, failed, skipped)
-                    self.ctx.metrics.update_run_counts(
-                        run_id, processed=idx, succeeded=succeeded, failed=failed, skipped=skipped,
-                    )
                     if idx % HEARTBEAT_INTERVAL == 0 and idx < total:
                         self.ctx.notifications.send_progress(
                             self.name(), idx, total,
