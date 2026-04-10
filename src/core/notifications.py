@@ -1,10 +1,10 @@
 """Send notifications via Telegram Bot API."""
 
-import json
 import traceback
-import urllib.request
 from datetime import datetime, timezone
 from typing import Any
+
+import requests
 
 from src.core.logger import get_logger
 
@@ -26,25 +26,17 @@ class TelegramNotifier:
         if len(text) > _TELEGRAM_MAX_LENGTH:
             text = text[: _TELEGRAM_MAX_LENGTH - 20] + "\n\n[truncated]"
 
-        payload = json.dumps({
-            "chat_id": self.chat_id,
-            "text": text,
-            "parse_mode": "HTML",
-        }).encode()
-
-        req = urllib.request.Request(
-            self._url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                if resp.status < 300:
-                    logger.debug("Telegram notification sent successfully")
-                    return True
-                logger.warning("Telegram API returned status %d", resp.status)
-                return False
+            resp = requests.post(
+                self._url,
+                json={"chat_id": self.chat_id, "text": text, "parse_mode": "HTML"},
+                timeout=15,
+            )
+            if resp.status_code < 300:
+                logger.debug("Telegram notification sent successfully")
+                return True
+            logger.warning("Telegram API returned status %d: %s", resp.status_code, resp.text[:200])
+            return False
         except Exception as exc:
             logger.error("Failed to send Telegram notification: %s", exc)
             return False

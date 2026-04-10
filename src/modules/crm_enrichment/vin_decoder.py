@@ -1,8 +1,8 @@
 """VIN extraction from deal names and NHTSA VIN decoding."""
 
-import json
 import re
-import urllib.request
+
+import requests
 
 from src.core.logger import get_logger
 
@@ -39,13 +39,14 @@ def nhtsa_decode(vin: str) -> tuple[str, str, str]:
     """
     url = f"https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/{vin}?format=json"
     try:
-        with urllib.request.urlopen(url, timeout=10) as r:
-            data = json.loads(r.read())
-            results = {
-                i["Variable"]: i["Value"]
-                for i in data.get("Results", [])
-                if i.get("Value") and i["Value"] not in ("Not Applicable", "null", None)
-            }
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        results = {
+            i["Variable"]: i["Value"]
+            for i in data.get("Results", [])
+            if i.get("Value") and i["Value"] not in ("Not Applicable", "null", None)
+        }
         year = results.get("Model Year", "")
         make = results.get("Make", "")
         model = results.get("Model", "")

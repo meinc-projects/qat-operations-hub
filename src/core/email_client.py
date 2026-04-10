@@ -1,7 +1,6 @@
 """SendGrid email client for module completion reports."""
 
-import json
-import urllib.request
+import requests
 
 from src.core.logger import get_logger
 
@@ -9,7 +8,7 @@ logger = get_logger("hub.email_client")
 
 
 class SendGridClient:
-    """Send emails via the SendGrid v3 REST API (no pip dependency)."""
+    """Send emails via the SendGrid v3 REST API."""
 
     def __init__(self, api_key: str, from_email: str, to_email: str) -> None:
         self.api_key = api_key
@@ -18,7 +17,7 @@ class SendGridClient:
 
     def send(self, subject: str, html_body: str, plain_body: str = "") -> bool:
         """Send an email. Returns True on success, False on failure."""
-        payload = json.dumps({
+        payload = {
             "personalizations": [{"to": [{"email": self.to_email}]}],
             "from": {"email": self.from_email},
             "subject": subject,
@@ -26,20 +25,19 @@ class SendGridClient:
                 {"type": "text/plain", "value": plain_body or subject},
                 {"type": "text/html", "value": html_body},
             ],
-        }).encode()
-
-        req = urllib.request.Request(
-            "https://api.sendgrid.com/v3/mail/send",
-            data=payload,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-        )
+        }
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                logger.info("SendGrid email sent (status %d)", resp.status)
+            resp = requests.post(
+                "https://api.sendgrid.com/v3/mail/send",
+                json=payload,
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=30,
+            )
+            if resp.status_code < 300:
+                logger.info("SendGrid email sent (status %d)", resp.status_code)
                 return True
+            logger.warning("SendGrid returned status %d: %s", resp.status_code, resp.text[:200])
+            return False
         except Exception as exc:
             logger.error("SendGrid email failed: %s", exc)
             return False
