@@ -9,7 +9,7 @@ from src.core.logger import get_logger
 
 logger = get_logger("hub.crm_enrichment.ocr")
 
-OCR_MODEL = "claude-opus-4-5"
+OCR_MODEL = "claude-sonnet-4-20250514"
 
 _OCR_PROMPT = (
     "This is a CA DMV vehicle registration document. "
